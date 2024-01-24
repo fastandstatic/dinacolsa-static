@@ -80,6 +80,7 @@ if (!String.prototype.trim) {
     }
     var firstVisit = false;
 
+    var isTrackEventForGA = [];
 
     var dummyPinterest = function () {
 
@@ -201,7 +202,7 @@ if (!String.prototype.trim) {
 
         let isNewSession = checkSession();
 
-        if(isNewSession){
+        if(isNewSession && !options.cookie.disabled_all_cookie && !options.cookie.disabled_start_session_cookie) {
             let duration = options.last_visit_duration * 60000
             var now = new Date();
             now.setTime(now.getTime() + duration);
@@ -469,8 +470,18 @@ if (!String.prototype.trim) {
                             var event = Utils.clone(options.dynamicEvents.automatic_event_video[pixels[i]]);
                             event.params["progress"] = key
                             Utils.copyProperties(params, event.params)
-                            Utils.copyProperties(Utils.getRequestParams(), event.params);
-                            getPixelBySlag(pixels[i]).onWatchVideo(event);
+                            if ( pixels[i] === 'tiktok' ) {
+                                var time_trigger = event.automatic_event_video_trigger;
+                                if ( currentTime >= marks[time_trigger] && event.fired !== true ) {
+                                    getPixelBySlag(pixels[i]).onWatchVideo(event);
+
+                                    //tiktok watch video fire once
+                                    options.dynamicEvents.automatic_event_video[pixels[i]].fired = true;
+                                }
+                            } else {
+                                Utils.copyProperties(Utils.getRequestParams(), event.params);
+                                getPixelBySlag(pixels[i]).onWatchVideo(event);
+                            }
                         }
                     }
 
@@ -587,9 +598,20 @@ if (!String.prototype.trim) {
                             for (var i = 0; i < pixels.length; i++) {
                                 var event = Utils.clone(options.dynamicEvents.automatic_event_video[pixels[i]]);
                                 event.params["progress"] = key
-                                Utils.copyProperties(params, event.params,);
-                                Utils.copyProperties(Utils.getRequestParams(), event.params);
-                                getPixelBySlag(pixels[i]).onWatchVideo(event);
+                                Utils.copyProperties(params, event.params);
+
+                                if ( pixels[i] === 'tiktok' ) {
+                                    var time_trigger = event.automatic_event_video_trigger;
+                                    if ( seconds >= player.pysMarks[time_trigger] && event.fired !== true ) {
+                                        getPixelBySlag(pixels[i]).onWatchVideo(event);
+
+                                        //tiktok watch video fire once
+                                        options.dynamicEvents.automatic_event_video[pixels[i]].fired = true;
+                                    }
+                                } else {
+                                    Utils.copyProperties(Utils.getRequestParams(), event.params);
+                                    getPixelBySlag(pixels[i]).onWatchVideo(event);
+                                }
                             }
                         }
 
@@ -713,10 +735,13 @@ if (!String.prototype.trim) {
             if(options.visit_data_model === "last_visit") {
                 name = "last_pys_landing_page"
             }
-            if(Cookies.get(name) === 'undefined') {
-                return "";
-            } else {
+            if(Cookies.get(name) && Cookies.get(name) !== "undefined") {
                 return Cookies.get(name);
+            }
+            else if(options.hasOwnProperty("tracking_analytics") && options.tracking_analytics.TrafficLanding){
+                return options.tracking_analytics.TrafficLanding;
+            } else{
+                return "";
             }
         }
         function getTrafficSourceValue() {
@@ -724,10 +749,13 @@ if (!String.prototype.trim) {
             if(options.visit_data_model === "last_visit") {
                 name = "last_pysTrafficSource"
             }
-            if(Cookies.get(name) === 'undefined') {
-                return "";
-            } else {
+            if(Cookies.get(name) && Cookies.get(name) !== "undefined") {
                 return Cookies.get(name);
+            }
+            else if(options.hasOwnProperty("tracking_analytics") && options.tracking_analytics.TrafficSource){
+                return options.tracking_analytics.TrafficSource;
+            } else{
+                return "";
             }
         }
 
@@ -741,6 +769,9 @@ if (!String.prototype.trim) {
                 $.each(utmId, function (index, name) {
                     if (Cookies.get(cookiePrefix + name)) {
                         terms[name] = Cookies.get(cookiePrefix + name)
+                    }
+                    else if(options.hasOwnProperty("tracking_analytics") && options.tracking_analytics.TrafficUtmsId[name]) {
+                        terms[name] = filterEmails(options.tracking_analytics.TrafficUtmsId[name])
                     }
                 });
                 return terms;
@@ -764,6 +795,9 @@ if (!String.prototype.trim) {
                     if (Cookies.get(cookiePrefix + name)) {
                         let value = Cookies.get(cookiePrefix + name);
                         terms[name] = filterEmails(value); // do not allow email in request params (Issue #70)
+                    }
+                    else if(options.hasOwnProperty("tracking_analytics") && options.tracking_analytics.TrafficUtms[name]) {
+                        terms[name] = filterEmails(options.tracking_analytics.TrafficUtms[name])
                     }
                 });
 
@@ -1041,6 +1075,41 @@ if (!String.prototype.trim) {
             },
 
             manageCookies: function () {
+
+                if (options.gdpr.ajax_enabled && !options.gdpr.consent_magic_integration_enabled) {
+
+                    // retrieves actual PYS GDPR filters values which allow to avoid cache issues
+                    $.get({
+                        url: options.ajaxUrl,
+                        dataType: 'json',
+                        data: {
+                            action: 'pys_get_gdpr_filters_values'
+                        },
+                        success: function (res) {
+
+                            if (res.success) {
+
+                                options.gdpr.all_disabled_by_api = res.data.all_disabled_by_api;
+                                options.gdpr.facebook_disabled_by_api = res.data.facebook_disabled_by_api;
+                                options.gdpr.tiktok_disabled_by_api = res.data.tiktok_disabled_by_api;
+                                options.gdpr.analytics_disabled_by_api = res.data.analytics_disabled_by_api;
+                                options.gdpr.google_ads_disabled_by_api = res.data.google_ads_disabled_by_api;
+                                options.gdpr.pinterest_disabled_by_api = res.data.pinterest_disabled_by_api;
+                                options.gdpr.bing_disabled_by_api = res.data.bing_disabled_by_api;
+
+                                options.cookie.externalID_disabled_by_api = res.data.externalID_disabled_by_api;
+                                options.cookie.disabled_all_cookie = res.data.disabled_all_cookie;
+                                options.cookie.disabled_advanced_form_data_cookie = res.data.disabled_advanced_form_data_cookie;
+                                options.cookie.disabled_landing_page_cookie = res.data.disabled_landing_page_cookie;
+                                options.cookie.disabled_first_visit_cookie = res.data.disabled_first_visit_cookie;
+                                options.cookie.disabled_trafficsource_cookie = res.data.disabled_trafficsource_cookie;
+                                options.cookie.disabled_utmTerms_cookie = res.data.disabled_utmTerms_cookie;
+                                options.cookie.disabled_utmId_cookie = res.data.disabled_utmId_cookie;
+
+                            }
+                        }
+                    });
+                }
                 let expires = parseInt(options.cookie_duration); //  days
                 let queryVars = getQueryVars();
                 let landing = window.location.href.split('?')[0];
@@ -1486,7 +1555,7 @@ if (!String.prototype.trim) {
                 return true;
             },
 
-            fireStaticEvents: function (pixel) {
+            fireStaticEvents: function (pixel, timeout = 0) {
 
                 if (options.staticEvents.hasOwnProperty(pixel)) {
 
@@ -1516,21 +1585,24 @@ if (!String.prototype.trim) {
 
                             if (!event.fired && Utils.isEventInTimeWindow(event.name,event,'static_' + pixel+"_")) {
 
-
                                 var fired = false;
 
                                 // fire event
-                                getPixelBySlag(pixel).fireEvent(event.name, event);
+                                if ( pixel === 'tiktok' ) {
+                                    setTimeout(function() {
+                                        getPixelBySlag(pixel).fireEvent(event.name, event);
+                                    }, timeout * 500);
+                                    timeout++;
+                                } else {
+                                    getPixelBySlag(pixel).fireEvent(event.name, event);
+                                }
 
                                 // prevent event double event firing
                                 event.fired = fired;
                             }
-
                         });
                     });
-
                 }
-
             },
 
             /**
@@ -1591,8 +1663,15 @@ if (!String.prototype.trim) {
                                 options.gdpr.pinterest_disabled_by_api = res.data.pinterest_disabled_by_api;
                                 options.gdpr.bing_disabled_by_api = res.data.bing_disabled_by_api;
 
+                                options.cookie.externalID_disabled_by_api = res.data.externalID_disabled_by_api;
+                                options.cookie.disabled_all_cookie = res.data.disabled_all_cookie;
+                                options.cookie.disabled_advanced_form_data_cookie = res.data.disabled_advanced_form_data_cookie;
+                                options.cookie.disabled_landing_page_cookie = res.data.disabled_landing_page_cookie;
+                                options.cookie.disabled_first_visit_cookie = res.data.disabled_first_visit_cookie;
+                                options.cookie.disabled_trafficsource_cookie = res.data.disabled_trafficsource_cookie;
+                                options.cookie.disabled_utmTerms_cookie = res.data.disabled_utmTerms_cookie;
+                                options.cookie.disabled_utmId_cookie = res.data.disabled_utmId_cookie;
                             }
-
                             loadPixels();
 
                         }
@@ -2040,10 +2119,10 @@ if (!String.prototype.trim) {
                 });
 
                 var dateTime = getDateTime();
-                var landing = Cookies.get('pys_landing_page');
-                var lastLanding = Cookies.get('last_pys_landing_page');
-                var trafic = Cookies.get('pysTrafficSource');
-                var lastTrafic = Cookies.get('last_pysTrafficSource');
+                var landing = getLandingPageValue();
+                var lastLanding = getLandingPageValue();
+                var trafic = getTrafficSourceValue();
+                var lastTrafic = getTrafficSourceValue();
 
                 var $form = null;
                 if($('body').hasClass('woocommerce-checkout')) {
@@ -2131,9 +2210,7 @@ if (!String.prototype.trim) {
             var params = {};
             Utils.copyProperties(data, params);
 
-
-
-            params.eventID = event.eventID;
+            params.event_id = event.event_id;
             if(ids.length > 0){
                 TikTok.fireEventAPI(name, event, params);
             }
@@ -2194,21 +2271,8 @@ if (!String.prototype.trim) {
                 })
                 ids.forEach(function (pixelId) {
 
-                    var fire_params = {};
-                    if(options.staticEvents.hasOwnProperty('tiktok') && options.staticEvents.tiktok.hasOwnProperty('init_event') && Object.keys(options.staticEvents.tiktok.init_event).length > 0 ) {
-                        options.staticEvents.tiktok.init_event.forEach(function ( e ) {
-                            if ( e.name == 'PageView' ) {
-                                Utils.copyProperties(e.params, fire_params);
-                                fire_params.eventID = e.eventID;
-                                e.fired = true;
-
-                                TikTok.fireEventAPI('PageView', e, fire_params);
-                            }
-                        })
-                    }
-
                     ttq.load(pixelId);
-                    ttq.page(fire_params);
+                    ttq.page();
                     let advancedMatching = {};
                     if(options.tiktok.hasOwnProperty('advanced_matching')
                         && Object.keys(options.tiktok.advanced_matching).length > 0) {
@@ -2218,6 +2282,10 @@ if (!String.prototype.trim) {
                                 advancedMatching["external_id"] = Cookies.get('pbid');
                             }
                         }
+                        else if(advancedMatching.hasOwnProperty("external_id") && advancedMatching.external_id != Cookies.get('pbid'))
+                        {
+                            advancedMatching["external_id"] = Cookies.get('pbid') ? Cookies.get('pbid') : advancedMatching.external_id;
+                        }
 
                         ttq.instance(pixelId).identify(advancedMatching)
                     }
@@ -2225,9 +2293,10 @@ if (!String.prototype.trim) {
                 initialized = true;
 
                 if (options.staticEvents.hasOwnProperty('tiktok')) {
-                    setTimeout(function () {
-                        Utils.fireStaticEvents('tiktok');
-                    }, 1500)
+                    var timeout = 1;
+                    setTimeout(function (timeout) {
+                        Utils.fireStaticEvents('tiktok', timeout);
+                    }, 1500, timeout)
                 }
             },
 
@@ -2284,7 +2353,7 @@ if (!String.prototype.trim) {
                                 ids: ids,
                                 data:params,
                                 url:window.location.href,
-                                eventID:event.eventID,
+                                event_id:event.event_id,
                                 ajax_event:options.ajax_event
                             };
 
@@ -2406,6 +2475,36 @@ if (!String.prototype.trim) {
 
                 }
             },
+
+            onPageScroll: function (event) {
+                if (initialized && this.isEnabled()) {
+                    this.fireEvent(event.name, event);
+                }
+            },
+
+            onWatchVideo: function (event) {
+                if (initialized && this.isEnabled() && !event.fired) {
+                    this.fireEvent(event.name, event);
+                }
+            },
+
+            onCommentEvent: function (event) {
+                if (initialized && this.isEnabled()) {
+                    this.fireEvent(event.name, event);
+                }
+            },
+
+            onAdSenseEvent: function (event) {
+                if (initialized && this.isEnabled()) {
+                    this.fireEvent(event.name, event);
+                }
+            },
+
+            onTime: function (event) {
+                if (initialized && this.isEnabled()) {
+                    this.fireEvent(event.name, event);
+                }
+            },
         }
     }(options);
 
@@ -2438,6 +2537,7 @@ if (!String.prototype.trim) {
         if(!isAddToCartFromJs) {
             notCachedEventsIds.push('woo_add_to_cart_on_button_click')
         }
+
         var initialized = false;
         var configuredPixels = new Array();
 
@@ -2465,13 +2565,9 @@ if (!String.prototype.trim) {
                 if(event.e_id === "woo_remove_from_cart" ) {
                     Facebook.updateEventId(event.name);
                     event.eventID = Facebook.getEventId(event.name);
-                } else if(isAddToCartFromJs && event.e_id === "woo_add_to_cart_on_button_click" ) {
-                    Facebook.updateEventId(event.name);
-                    event.eventID = Facebook.getEventId(event.name);
                 } else if(!notCachedEventsIds.includes(event.e_id)) {
                     var isApiDisabled = options.gdpr.all_disabled_by_api ||
                         options.gdpr.facebook_disabled_by_api ||
-                        options.gdpr.tiktok_disabled_by_api ||
                         options.gdpr.cookiebot_integration_enabled ||
                         options.gdpr.cookie_notice_integration_enabled ||
                         options.gdpr.consent_magic_integration_enabled ||
@@ -2709,6 +2805,10 @@ if (!String.prototype.trim) {
                         if (Cookies.get('pbid')) {
                             advancedMatching["external_id"] = Cookies.get('pbid');
                         }
+                    }
+                    else if(advancedMatching.hasOwnProperty("external_id") && advancedMatching.external_id != Cookies.get('pbid'))
+                    {
+                        advancedMatching["external_id"] = Cookies.get('pbid') ? Cookies.get('pbid') : advancedMatching.external_id;
                     }
 
                     if(Object.keys(advancedMatching).length > 0) {
@@ -3005,7 +3105,8 @@ if (!String.prototype.trim) {
 
             var eventParams = event.params;
             var data = event.params;
-            var ids = event.trackingIds.filter(function (pixelId) {
+            var valuesArray = Object.values(event.trackingIds);
+            var ids = valuesArray.filter(function (pixelId) {
                 return !Utils.hideMatchingPixel(pixelId, 'ga');
             })
             Utils.copyProperties(Utils.getRequestParams(), eventParams);
@@ -3020,12 +3121,27 @@ if (!String.prototype.trim) {
                 gtag('event', name, params);
 
             };
+            if(options.ga.hasOwnProperty('unifyGA4') && options.ga.unifyGA4){
 
-            ids.forEach(function (tracking_id) {
-                var copyParams = Utils.copyProperties(eventParams, {}); // copy params because mapParamsTov4 can modify it
-                var params = mapParamsTov4(tracking_id,name,copyParams)
-                _fireEvent(tracking_id, name, params);
-            });
+                    var copyParams = Utils.copyProperties(eventParams, {}); // copy params because mapParamsTov4 can modify it
+                    if(event.hasOwnProperty("unify")){
+                        var params = mapParamsToUnifyGA(name,copyParams)
+                    }
+                    else {
+                        var params = mapParamsTov4(ids,name,copyParams)
+                    }
+
+                    _fireEvent(ids, name, params);
+                    isTrackEventForGA.push(name);
+            }
+            else {
+                ids.forEach(function (tracking_id) {
+                    var copyParams = Utils.copyProperties(eventParams, {}); // copy params because mapParamsTov4 can modify it
+                    var params = mapParamsTov4(tracking_id,name,copyParams)
+                    _fireEvent(tracking_id, name, params);
+                });
+            }
+
 
         }
 
@@ -3046,24 +3162,106 @@ if (!String.prototype.trim) {
 
         }
 
+        function mapParamsToUnifyGA(name,param){
+            switch (name) {
+                case 'OutboundClick':
+                case 'InternalClick': {
+                    let params = {
+                        event_category: "Key Actions",
+                        event_action: name,
+                        non_interaction: param.non_interaction,
+                    }
+                    if(param.hasOwnProperty("target_url")) {
+                        params['event_label'] = param.target_url
+                    }
+                    if(options.trackTrafficSource) {
+                        params['traffic_source'] = param.traffic_source
+                    }
+                    return params;
+                }
+
+                case 'AdSense' :
+                case 'Comment' :
+                case 'login' :
+                case 'sign_up' :
+                case 'EmailClick' :
+                case 'TelClick' : {
+                    let params = {
+                        event_category: "Key Actions",
+                        event_action: name,
+                        non_interaction: param.non_interaction,
+                    }
+                    return params;
+                }
+                case 'Form' : {
+                    let params = {
+                        event_category: "Key Actions",
+                        event_action: name,
+                        non_interaction: param.non_interaction,
+                    }
+                    var formClass = (typeof param.form_class != 'undefined') ? 'class: ' + param.form_class : '';
+                    if(formClass != "") {
+                        params["event_label"] = formClass;
+                    }
+                    return params;
+                }
+                case 'Download' : {
+                    let params = {
+                        event_category: "Key Actions",
+                        event_action: name,
+                        event_label: param.download_name,
+                        non_interaction: param.non_interaction,
+                    }
+                    return params;
+                }
+                case 'TimeOnPage' :
+                case 'PageScroll' : {
+                    let params = {
+                        event_category: "Key Actions",
+                        event_action: name,
+                        event_label: document.title,
+                        non_interaction: param.non_interaction,
+                    }
+                    return params;
+                }
+                case 'search' : {
+                    let params = {
+                        event_category: "Key Actions",
+                        event_action: name,
+                        event_label: param.search_term,
+                        non_interaction: param.non_interaction,
+                    }
+                    return params;
+                }
+            }
+            return param;
+        }
         function mapParamsTov4(tag,name,param) {
             //GA4 automatically collects a number of parameters for all events
+            var hasGA4Tag = false;
             delete param.page_title;
             delete param.event_url;
             delete param.landing_page;
+
             // end
-            if(isv4(tag)) {
+            if (Array.isArray(tag)) {
+                hasGA4Tag = tag.some(function (element) {
+                    return isv4(element);
+                });
+            } else if(isv4(tag)) {
+                // tag является строкой и соответствует GA4
+                hasGA4Tag = true;
+            }
+            if(hasGA4Tag) {
                 delete param.traffic_source;
                 delete param.event_category;
                 delete param.event_label;
                 delete param.ecomm_prodid;
                 delete param.ecomm_pagetype;
                 delete param.ecomm_totalvalue;
-                delete param.non_interaction;
                 if(name === 'search') {
                     param['search'] = param.search_term;
                     delete param.search_term;
-                    delete param.non_interaction;
                     delete param.dynx_itemid;
                     delete param.dynx_pagetype;
                     delete param.dynx_totalvalue;
@@ -3076,7 +3274,6 @@ if (!String.prototype.trim) {
                         let params = {
                             event_category: "Key Actions",
                             event_action: name,
-                            non_interaction: param.non_interaction,
                         }
                         if(param.hasOwnProperty("target_url")) {
                             params['event_label'] = param.target_url
@@ -3096,7 +3293,6 @@ if (!String.prototype.trim) {
                         let params = {
                             event_category: "Key Actions",
                             event_action: name,
-                              non_interaction: param.non_interaction,
                         }
                         return params;
                     }
@@ -3104,7 +3300,6 @@ if (!String.prototype.trim) {
                         let params = {
                             event_category: "Key Actions",
                             event_action: name,
-                              non_interaction: param.non_interaction,
                         }
                         var formClass = (typeof param.form_class != 'undefined') ? 'class: ' + param.form_class : '';
                         if(formClass != "") {
@@ -3117,7 +3312,6 @@ if (!String.prototype.trim) {
                             event_category: "Key Actions",
                             event_action: name,
                             event_label: param.download_name,
-                              non_interaction: param.non_interaction,
                         }
                         return params;
                     }
@@ -3127,7 +3321,6 @@ if (!String.prototype.trim) {
                             event_category: "Key Actions",
                             event_action: name,
                             event_label: document.title,
-                              non_interaction: param.non_interaction,
                         }
                         return params;
                     }
@@ -3136,7 +3329,6 @@ if (!String.prototype.trim) {
                             event_category: "Key Actions",
                             event_action: name,
                             event_label: param.search_term,
-                              non_interaction: param.non_interaction,
                         }
                         return params;
                     }
@@ -3213,8 +3405,6 @@ if (!String.prototype.trim) {
                 }
 
                 var config = {
-                    'link_attribution': options.ga.enhanceLinkAttr,
-                    'anonymize_ip': options.ga.anonimizeIP,
                     'custom_map': cd
                 };
 
@@ -3251,9 +3441,6 @@ if (!String.prototype.trim) {
                         delete config.debug_mode;
                     }
                     if(isv4(trackingId)) {
-                        if(options.ga.disableAdvertisingFeatures) {
-                            config.allow_google_signals = false
-                        }
                         if(options.ga.disableAdvertisingPersonalization) {
                             config.allow_ad_personalization_signals = false
                         }
@@ -3552,19 +3739,20 @@ if (!String.prototype.trim) {
          * @link: https://developers.google.com/gtagjs/reference/parameter
          */
         function fireEvent(name, data) {
-
             if(typeof window.pys_event_data_filter === "function" && window.pys_disable_event_filter(event_name,'google_ads')) {
                 return;
             }
-
             var _params = Utils.copyProperties(data.params,{});
             var ids = data.ids.filter(function (pixelId) {
                 return !Utils.hideMatchingPixel(pixelId, 'google_ads');
             });
-            var coversionIds = data.conversion_ids.filter(function (conversion_id) {
+            var coversionIds = data.hasOwnProperty('conversion_ids') ? data.conversion_ids.filter(function (conversion_id) {
                 return !Utils.hideMatchingPixel(conversion_id, 'google_ads');
-            });
-            var conversion_labels = data.conversion_labels;
+            }) : [];
+            var conversion_labels = data.hasOwnProperty('conversion_labels') ? data.conversion_labels.filter(function (conversion_label) {
+                conversion_id = conversion_label.split('/')[0];
+                return !Utils.hideMatchingPixel(conversion_id, 'google_ads');
+            }) : [];
 
             Utils.copyProperties(Utils.getRequestParams(), _params);
             var _fireEvent = function (conversion_id,event_name) {
@@ -3581,25 +3769,64 @@ if (!String.prototype.trim) {
                 if (options.debug) {
                     console.log('[Google Ads #' + conversion_id + '] ' + event_name, params);
                 }
-
                 gtag('event', event_name, params);
 
+
             };
+            if(options.hasOwnProperty('ga') && options.ga.hasOwnProperty('unifyGA4') && options.ga.unifyGA4){
+                if (conversion_labels.length > 0) {
+                    ids = conversion_labels;
+                    if(!isTrackEventForGA.includes(name)){
+                        _fireEvent(ids, name);
+                    }
+                }
+                else {
+                    if(ids.length && options.google_ads.woo_conversion_track && options.google_ads.woo_conversion_track == 'conversion')
+                    {
+                        _fireEvent(ids, "conversion");
+                    }
+                    if (name == 'purchase') {
+                        if (ids.length && options.google_ads.woo_conversion_track && options.google_ads.woo_conversion_track == 'purchase') {
+                            ids = ids;
+                        } else {
+                            ids = coversionIds
+                        }
+                    } else {
+                        ids = coversionIds;
+                    }
+                    if(!isTrackEventForGA.includes(name)){
+                        _fireEvent(ids, name);
+                    }
+                }
 
-            if(conversion_labels.length > 0) {  // if custom event have conversion_label
-                conversion_labels.forEach(function (conversion_id) {
-                    _fireEvent(conversion_id,name);
-                });
-            } else { // if normal event have conversion_label or custom without conversion_label
-
-                coversionIds.forEach(function (conversion_id) { // send main event
-                    _fireEvent(conversion_id,name);
-                });
-
-                if (ids.length) {
-                    ids.forEach(function (conversion_id) {  // send conversion event next to main(not use for custom events)
-                        _fireEvent(conversion_id,"conversion");
+            }
+            else {
+                if (conversion_labels.length > 0) {  // if custom event have conversion_label
+                    conversion_labels.forEach(function (conversion_id) {
+                        _fireEvent(conversion_id, name);
                     });
+                } else { // if normal event have conversion_label or custom without conversion_label
+
+                    if (ids.length && options.google_ads.woo_conversion_track && options.google_ads.woo_conversion_track == 'conversion') {
+                        ids.forEach(function (conversion_id) {  // send conversion event next to main(not use for custom events)
+                            _fireEvent(conversion_id, "conversion");
+                        });
+                    }
+                    if (name == 'purchase') {
+                        if (ids.length && options.google_ads.woo_conversion_track && options.google_ads.woo_conversion_track == 'purchase') {
+                            ids.forEach(function (conversion_id) {  // send conversion event next to main(not use for custom events)
+                                _fireEvent(conversion_id, name);
+                            });
+                        } else {
+                            coversionIds.forEach(function (conversion_id) { // send main event
+                                _fireEvent(conversion_id, name);
+                            });
+                        }
+                    } else {
+                        coversionIds.forEach(function (conversion_id) { // send main event
+                            _fireEvent(conversion_id, name);
+                        });
+                    }
                 }
             }
         }
@@ -4162,7 +4389,9 @@ if (!String.prototype.trim) {
                             var pixels = Object.keys(options.dynamicEvents.automatic_event_email_link);
                             for(var i = 0;i<pixels.length;i++) {
                                 var event = Utils.clone(options.dynamicEvents.automatic_event_email_link[pixels[i]]);
-                                Utils.copyProperties(Utils.getRequestParams(), event.params);
+                                if ( pixels[i] !== 'tiktok') {
+                                    Utils.copyProperties(Utils.getRequestParams(), event.params);
+                                }
                                 getPixelBySlag(pixels[i]).fireEvent(event.name, event);
                             }
                         }
@@ -4176,7 +4405,9 @@ if (!String.prototype.trim) {
                             var pixels = Object.keys(options.dynamicEvents.automatic_event_tel_link);
                             for(var i = 0;i<pixels.length;i++) {
                                 var event = Utils.clone(options.dynamicEvents.automatic_event_tel_link[pixels[i]]);
-                                Utils.copyProperties(Utils.getRequestParams(), event.params);
+                                if ( pixels[i] !== 'tiktok') {
+                                    Utils.copyProperties(Utils.getRequestParams(), event.params);
+                                }
                                 getPixelBySlag(pixels[i]).fireEvent(event.name, event);
                             }
                         }
@@ -4287,7 +4518,9 @@ if (!String.prototype.trim) {
                             var pixels = Object.keys(options.dynamicEvents.automatic_event_adsense);
                             for (var i = 0; i < pixels.length; i++) {
                                 var event = Utils.clone(options.dynamicEvents.automatic_event_adsense[pixels[i]]);
-                                Utils.copyProperties(Utils.getRequestParams(), event.params);
+                                if ( pixels[i] !== 'tiktok') {
+                                    Utils.copyProperties(Utils.getRequestParams(), event.params);
+                                }
                                 getPixelBySlag(pixels[i]).onAdSenseEvent(event);
                             }
                         }
@@ -4363,7 +4596,9 @@ if (!String.prototype.trim) {
                         var scroll = Math.round(docHeight * event.scroll_percent / 100)// convert % to absolute positions
 
                         if(scroll < $(window).scrollTop()) {
-                            Utils.copyProperties(Utils.getRequestParams(), event.params);
+                            if ( pixels[i] !== 'tiktok') {
+                                Utils.copyProperties(Utils.getRequestParams(), event.params);
+                            }
                             getPixelBySlag(pixels[i]).onPageScroll(event);
                             isFired = true
                         }
@@ -4383,7 +4618,9 @@ if (!String.prototype.trim) {
             setTimeout(function(){
                 for(var i = 0;i<pixels.length;i++) {
                     var event = Utils.clone(options.dynamicEvents.automatic_event_time_on_page[pixels[i]]);
-                    Utils.copyProperties(Utils.getRequestParams(), event.params);
+                    if ( pixels[i] !== 'tiktok') {
+                        Utils.copyProperties(Utils.getRequestParams(), event.params);
+                    }
                     getPixelBySlag(pixels[i]).onTime(event);
                 }
             },time*1000);
@@ -4820,7 +5057,9 @@ if (!String.prototype.trim) {
                     var pixels = Object.keys(options.dynamicEvents.automatic_event_comment);
                     for (var i = 0; i < pixels.length; i++) {
                         var event = Utils.clone(options.dynamicEvents.automatic_event_comment[pixels[i]]);
-                        Utils.copyProperties(Utils.getRequestParams(), event.params);
+                        if ( pixels[i] !== 'tiktok') {
+                            Utils.copyProperties(Utils.getRequestParams(), event.params);
+                        }
                         getPixelBySlag(pixels[i]).onCommentEvent(event);
                     }
                 }
@@ -5211,7 +5450,21 @@ if (!String.prototype.trim) {
 
 
 }(jQuery, pysOptions);
-
+if (pysOptions.ajaxForServerEvent && !Cookies.get('pbid')) {
+    jQuery.ajax({
+        url: pysOptions.ajaxUrl,
+        dataType: 'json',
+        data: {
+            action: 'pys_get_pbid'
+        },
+        success: function (res) {
+            if (res.data && res.data.pbid != false && pysOptions.send_external_id) {
+                var expires = parseInt(pysOptions.external_id_expire || 180);
+                Cookies.set('pbid', res.data.pbid, { expires: expires, path: '/' });
+            }
+        }
+    });
+}
 function pys_generate_token(length){
     //edit the token allowed characters
     var a = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890".split("");
@@ -5247,7 +5500,7 @@ function getPixelBySlag(slug) {
         case "tiktok": return window.pys.TikTok;
     }
 }
-var getUrlParameter = function getUrlParameter(sParam) {
+function getUrlParameter(sParam) {
     var sPageURL = window.location.search.substring(1),
         sURLVariables = sPageURL.split('&'),
         sParameterName,
